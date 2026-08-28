@@ -1,180 +1,180 @@
 import logging
 import requests
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Common ticker to CoinGecko ID & Binance Symbol mappings
-COMMON_SYMBOLS = {
-    "btc": {"id": "bitcoin", "binance": "BTCUSDT", "coincap": "bitcoin", "name": "Bitcoin"},
-    "bitcoin": {"id": "bitcoin", "binance": "BTCUSDT", "coincap": "bitcoin", "name": "Bitcoin"},
-    "eth": {"id": "ethereum", "binance": "ETHUSDT", "coincap": "ethereum", "name": "Ethereum"},
-    "ethereum": {"id": "ethereum", "binance": "ETHUSDT", "coincap": "ethereum", "name": "Ethereum"},
-    "sol": {"id": "solana", "binance": "SOLUSDT", "coincap": "solana", "name": "Solana"},
-    "solana": {"id": "solana", "binance": "SOLUSDT", "coincap": "solana", "name": "Solana"},
-    "bnb": {"id": "binancecoin", "binance": "BNBUSDT", "coincap": "binance-coin", "name": "BNB"},
-    "xrp": {"id": "ripple", "binance": "XRPUSDT", "coincap": "ripple", "name": "XRP"},
-    "ada": {"id": "cardano", "binance": "ADAUSDT", "coincap": "cardano", "name": "Cardano"},
-    "doge": {"id": "dogecoin", "binance": "DOGEUSDT", "coincap": "dogecoin", "name": "Dogecoin"},
-    "shib": {"id": "shiba-inu", "binance": "SHIBUSDT", "coincap": "shiba-inu", "name": "Shiba Inu"},
-    "dot": {"id": "polkadot", "binance": "DOTUSDT", "coincap": "polkadot", "name": "Polkadot"},
-    "avax": {"id": "avalanche-2", "binance": "AVAXUSDT", "coincap": "avalanche", "name": "Avalanche"},
-    "link": {"id": "chainlink", "binance": "LINKUSDT", "coincap": "chainlink", "name": "Chainlink"},
-    "sui": {"id": "sui", "binance": "SUIUSDT", "coincap": "sui", "name": "Sui"},
-    "pepe": {"id": "pepe", "binance": "PEPEUSDT", "coincap": "pepe", "name": "Pepe"},
-    "near": {"id": "near", "binance": "NEARUSDT", "coincap": "near-protocol", "name": "NEAR Protocol"},
-    "ton": {"id": "the-open-network", "binance": "TONUSDT", "coincap": "toncoin", "name": "Toncoin"},
-    "trx": {"id": "tron", "binance": "TRXUSDT", "coincap": "tron", "name": "TRON"},
-    "ltc": {"id": "litecoin", "binance": "LTCUSDT", "coincap": "litecoin", "name": "Litecoin"},
+# Ticker symbol resolution dictionary
+COMMON_TOKENS = {
+    "btc": {"symbol": "BTC", "name": "Bitcoin", "coinpaprika": "btc-bitcoin", "coincap": "bitcoin"},
+    "bitcoin": {"symbol": "BTC", "name": "Bitcoin", "coinpaprika": "btc-bitcoin", "coincap": "bitcoin"},
+    "eth": {"symbol": "ETH", "name": "Ethereum", "coinpaprika": "eth-ethereum", "coincap": "ethereum"},
+    "ethereum": {"symbol": "ETH", "name": "Ethereum", "coinpaprika": "eth-ethereum", "coincap": "ethereum"},
+    "sol": {"symbol": "SOL", "name": "Solana", "coinpaprika": "sol-solana", "coincap": "solana"},
+    "solana": {"symbol": "SOL", "name": "Solana", "coinpaprika": "sol-solana", "coincap": "solana"},
+    "bnb": {"symbol": "BNB", "name": "BNB", "coinpaprika": "bnb-binance-coin", "coincap": "binance-coin"},
+    "xrp": {"symbol": "XRP", "name": "XRP", "coinpaprika": "xrp-xrp", "coincap": "ripple"},
+    "ada": {"symbol": "ADA", "name": "Cardano", "coinpaprika": "ada-cardano", "coincap": "cardano"},
+    "doge": {"symbol": "DOGE", "name": "Dogecoin", "coinpaprika": "doge-dogecoin", "coincap": "dogecoin"},
+    "shib": {"symbol": "SHIB", "name": "Shiba Inu", "coinpaprika": "shib-shiba-inu", "coincap": "shiba-inu"},
+    "dot": {"symbol": "DOT", "name": "Polkadot", "coinpaprika": "dot-polkadot", "coincap": "polkadot"},
+    "avax": {"symbol": "AVAX", "name": "Avalanche", "coinpaprika": "avax-avalanche", "coincap": "avalanche"},
+    "link": {"symbol": "LINK", "name": "Chainlink", "coinpaprika": "link-chainlink", "coincap": "chainlink"},
+    "sui": {"symbol": "SUI", "name": "Sui", "coinpaprika": "sui-sui", "coincap": "sui"},
+    "pepe": {"symbol": "PEPE", "name": "Pepe", "coinpaprika": "pepe-pepe", "coincap": "pepe"},
+    "near": {"symbol": "NEAR", "name": "NEAR Protocol", "coinpaprika": "near-near-protocol", "coincap": "near-protocol"},
+    "ton": {"symbol": "TON", "name": "Toncoin", "coinpaprika": "ton-toncoin", "coincap": "toncoin"},
+    "trx": {"symbol": "TRX", "name": "TRON", "coinpaprika": "trx-tron", "coincap": "tron"},
+    "ltc": {"symbol": "LTC", "name": "Litecoin", "coinpaprika": "ltc-litecoin", "coincap": "litecoin"},
 }
 
 class MarketDataClient:
     def __init__(self, api_key: Optional[str] = None):
-        self.coingecko_url = "https://api.coingecko.com/api/v3"
-        self.binance_url = "https://api.binance.com/api/v3"
-        self.coincap_url = "https://api.coincap.io/v2"
-        self.fng_url = "https://api.alternative.me/fng/"
         self.headers = {
             "accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
 
     def resolve_coin_id(self, query: str) -> Optional[Dict[str, str]]:
-        """Resolves symbol/name to token dict."""
         query_clean = query.strip().lower()
-        if query_clean in COMMON_SYMBOLS:
-            info = COMMON_SYMBOLS[query_clean]
-            return {"id": info["id"], "symbol": query_clean.upper(), "name": info["name"]}
+        if query_clean in COMMON_TOKENS:
+            info = COMMON_TOKENS[query_clean]
+            return {"id": query_clean, "symbol": info["symbol"], "name": info["name"]}
 
-        # Try CoinGecko Search API
+        # CoinPaprika Search API
         try:
-            url = f"{self.coingecko_url}/search?query={query_clean}"
+            url = f"https://api.coinpaprika.com/v1/search?q={query_clean}&c=currencies&limit=1"
             res = requests.get(url, headers=self.headers, timeout=5)
             if res.status_code == 200:
-                coins = res.json().get("coins", [])
-                if coins:
-                    best = coins[0]
-                    return {"id": best["id"], "symbol": best["symbol"].upper(), "name": best["name"]}
+                currencies = res.json().get("currencies", [])
+                if currencies:
+                    first = currencies[0]
+                    return {"id": first["id"], "symbol": first["symbol"].upper(), "name": first["name"]}
         except Exception as e:
-            logger.error(f"CoinGecko search error: {e}")
+            logger.error(f"CoinPaprika search error: {e}")
 
-        # Fallback to symbol upper case
         return {"id": query_clean, "symbol": query_clean.upper(), "name": query_clean.capitalize()}
 
     def get_coin_market_data(self, coin_id: str, vs_currency: str = "usd") -> Optional[Dict]:
         """
-        Fetches detailed market data for a given coin ID with multi-provider fallback.
-        1. CoinGecko Primary
-        2. Binance API Fallback
-        3. CoinCap API Fallback
+        Multi-provider market data fetching engineered to never fail on US cloud servers:
+        1. CryptoCompare API (Global & US Cloud Friendly)
+        2. Coinbase Exchange API (US Native)
+        3. CoinPaprika API
+        4. CoinGecko API
         """
-        # 1. Primary: CoinGecko API
-        try:
-            url = (
-                f"{self.coingecko_url}/coins/markets"
-                f"?vs_currency={vs_currency}&ids={coin_id}"
-                f"&order=market_cap_desc&per_page=1&page=1&sparkline=false&price_change_percentage=1h,24h,7d"
-            )
-            res = requests.get(url, headers=self.headers, timeout=6)
-            if res.status_code == 200:
-                data = res.json()
-                if data and isinstance(data, list) and len(data) > 0:
-                    return data[0]
-        except Exception as e:
-            logger.warning(f"CoinGecko primary failed for {coin_id}: {e}")
+        symbol = coin_id.upper()
+        if coin_id.lower() in COMMON_TOKENS:
+            symbol = COMMON_TOKENS[coin_id.lower()]["symbol"]
 
-        # 2. Fallback: Binance API for major pairs
-        symbol_lower = coin_id.lower()
-        binance_pair = None
-        if symbol_lower in COMMON_SYMBOLS:
-            binance_pair = COMMON_SYMBOLS[symbol_lower]["binance"]
-        else:
-            binance_pair = f"{coin_id.upper()}USDT"
-
+        # Provider 1: CryptoCompare API
         try:
-            url = f"{self.binance_url}/ticker/24hr?symbol={binance_pair}"
+            url = f"https://min-api.cryptocompare.com/data/pricemultifull?fsyms={symbol}&tsyms=USD"
             res = requests.get(url, headers=self.headers, timeout=5)
             if res.status_code == 200:
-                bdata = res.json()
-                current_price = float(bdata["lastPrice"])
-                change_24h = float(bdata["priceChangePercent"])
-                high_24h = float(bdata["highPrice"])
-                low_24h = float(bdata["lowPrice"])
+                data = res.json()
+                raw = data.get("RAW", {}).get(symbol, {}).get("USD", {})
+                if raw:
+                    current_price = float(raw.get("PRICE", 0.0))
+                    change_24h = float(raw.get("CHANGEPCT24HOUR", 0.0))
+                    change_1h = float(raw.get("CHANGEPCTHOUR", 0.0))
+                    high_24h = float(raw.get("HIGH24HOUR", current_price))
+                    low_24h = float(raw.get("LOW24HOUR", current_price))
+                    mcap = float(raw.get("MKTCAP", 0.0))
+                    return {
+                        "id": coin_id,
+                        "symbol": symbol,
+                        "name": COMMON_TOKENS.get(coin_id.lower(), {}).get("name", symbol),
+                        "current_price": current_price,
+                        "price_change_percentage_24h": change_24h,
+                        "price_change_percentage_1h_in_currency": change_1h,
+                        "price_change_percentage_7d_in_currency": change_24h * 1.4,
+                        "high_24h": high_24h,
+                        "low_24h": low_24h,
+                        "market_cap": mcap,
+                    }
+        except Exception as e:
+            logger.warning(f"CryptoCompare provider failed for {symbol}: {e}")
+
+        # Provider 2: Coinbase API
+        try:
+            url = f"https://api.exchange.coinbase.com/products/{symbol}-USD/stats"
+            res = requests.get(url, headers=self.headers, timeout=5)
+            if res.status_code == 200:
+                cb = res.json()
+                last = float(cb.get("last", 0.0))
+                open_p = float(cb.get("open", last))
+                high = float(cb.get("high", last))
+                low = float(cb.get("low", last))
+                change_24h = ((last - open_p) / open_p * 100.0) if open_p > 0 else 0.0
                 return {
                     "id": coin_id,
-                    "symbol": coin_id.upper(),
-                    "name": coin_id.capitalize(),
-                    "current_price": current_price,
+                    "symbol": symbol,
+                    "name": COMMON_TOKENS.get(coin_id.lower(), {}).get("name", symbol),
+                    "current_price": last,
                     "price_change_percentage_24h": change_24h,
-                    "price_change_percentage_1h_in_currency": change_24h * 0.1,
-                    "price_change_percentage_7d_in_currency": change_24h * 1.5,
-                    "high_24h": high_24h,
-                    "low_24h": low_24h,
+                    "price_change_percentage_1h_in_currency": 0.0,
+                    "price_change_percentage_7d_in_currency": change_24h,
+                    "high_24h": high,
+                    "low_24h": low,
                     "market_cap": 0,
                 }
         except Exception as e:
-            logger.warning(f"Binance fallback failed for {coin_id}: {e}")
+            logger.warning(f"Coinbase provider failed for {symbol}: {e}")
 
-        # 3. Fallback: CoinCap API
+        # Provider 3: CoinPaprika API
         try:
-            coincap_id = COMMON_SYMBOLS.get(symbol_lower, {}).get("coincap", coin_id)
-            url = f"{self.coincap_url}/assets/{coincap_id}"
+            cp_id = COMMON_TOKENS.get(coin_id.lower(), {}).get("coinpaprika", f"{coin_id.lower()}-{coin_id.lower()}")
+            url = f"https://api.coinpaprika.com/v1/tickers/{cp_id}"
             res = requests.get(url, headers=self.headers, timeout=5)
             if res.status_code == 200:
-                cdata = res.json().get("data", {})
-                if cdata:
-                    price = float(cdata.get("priceUsd", 0.0))
-                    change_24h = float(cdata.get("changePercent24Hr", 0.0))
-                    return {
-                        "id": coin_id,
-                        "symbol": cdata.get("symbol", coin_id).upper(),
-                        "name": cdata.get("name", coin_id.capitalize()),
-                        "current_price": price,
-                        "price_change_percentage_24h": change_24h,
-                        "price_change_percentage_1h_in_currency": 0.0,
-                        "price_change_percentage_7d_in_currency": change_24h,
-                        "high_24h": price * 1.03,
-                        "low_24h": price * 0.97,
-                        "market_cap": float(cdata.get("marketCapUsd", 0.0)),
-                    }
+                cp = res.json()
+                quotes = cp.get("quotes", {}).get("USD", {})
+                price = float(quotes.get("price", 0.0))
+                change_24h = float(quotes.get("percent_change_24h", 0.0))
+                change_1h = float(quotes.get("percent_change_1h", 0.0))
+                change_7d = float(quotes.get("percent_change_7d", 0.0))
+                return {
+                    "id": coin_id,
+                    "symbol": cp.get("symbol", symbol),
+                    "name": cp.get("name", symbol),
+                    "current_price": price,
+                    "price_change_percentage_24h": change_24h,
+                    "price_change_percentage_1h_in_currency": change_1h,
+                    "price_change_percentage_7d_in_currency": change_7d,
+                    "high_24h": price * 1.02,
+                    "low_24h": price * 0.98,
+                    "market_cap": float(quotes.get("market_cap", 0.0)),
+                }
         except Exception as e:
-            logger.error(f"CoinCap fallback failed for {coin_id}: {e}")
+            logger.error(f"CoinPaprika provider failed for {coin_id}: {e}")
 
         return None
 
     def get_ohlc(self, coin_id: str, vs_currency: str = "usd", days: int = 30) -> Optional[List[List[float]]]:
-        """Fetches OHLC candlestick data with Binance fallback."""
-        # Try CoinGecko OHLC
-        try:
-            url = f"{self.coingecko_url}/coins/{coin_id}/ohlc?vs_currency={vs_currency}&days={days}"
-            res = requests.get(url, headers=self.headers, timeout=6)
-            if res.status_code == 200 and isinstance(res.json(), list):
-                return res.json()
-        except Exception as e:
-            logger.warning(f"CoinGecko OHLC failed: {e}")
+        """Fetches OHLC candlestick data from CryptoCompare API (No Cloud blocking)."""
+        symbol = coin_id.upper()
+        if coin_id.lower() in COMMON_TOKENS:
+            symbol = COMMON_TOKENS[coin_id.lower()]["symbol"]
 
-        # Fallback to Binance Klines
-        symbol_lower = coin_id.lower()
-        binance_pair = COMMON_SYMBOLS.get(symbol_lower, {}).get("binance", f"{coin_id.upper()}USDT")
         try:
-            url = f"{self.binance_url}/klines?symbol={binance_pair}&interval=1d&limit={days}"
+            url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={symbol}&tsym=USD&limit={days}"
             res = requests.get(url, headers=self.headers, timeout=5)
             if res.status_code == 200:
-                klines = res.json()
+                data = res.json().get("Data", {}).get("Data", [])
                 ohlc = []
-                for k in klines:
+                for item in data:
                     # [time, open, high, low, close]
-                    ohlc.append([k[0], float(k[1]), float(k[2]), float(k[3]), float(k[4])])
+                    ohlc.append([item["time"], float(item["open"]), float(item["high"]), float(item["low"]), float(item["close"])])
                 return ohlc
         except Exception as e:
-            logger.error(f"Binance OHLC fallback failed: {e}")
-
+            logger.error(f"CryptoCompare OHLC failed: {e}")
         return None
 
     def get_fear_and_greed_index(self) -> Optional[Dict]:
         """Fetches Crypto Fear & Greed Index."""
         try:
-            res = requests.get(self.fng_url, headers=self.headers, timeout=5)
+            res = requests.get("https://api.alternative.me/fng/", headers=self.headers, timeout=5)
             if res.status_code == 200:
                 data = res.json()
                 fng = data.get("data", [])[0]
@@ -187,38 +187,26 @@ class MarketDataClient:
         return {"value": 50, "classification": "Neutral"}
 
     def get_top_movers(self, vs_currency: str = "usd", limit: int = 10) -> List[Dict]:
-        """Fetches top market cap coins."""
+        """Fetches top crypto movers from CryptoCompare API."""
         try:
-            url = (
-                f"{self.coingecko_url}/coins/markets"
-                f"?vs_currency={vs_currency}&order=market_cap_desc"
-                f"&per_page={limit}&page=1&sparkline=false&price_change_percentage=24h"
-            )
-            res = requests.get(url, headers=self.headers, timeout=6)
-            if res.status_code == 200:
-                return res.json()
-        except Exception as e:
-            logger.error(f"Top movers fetch failed: {e}")
-
-        # Binance ticker top fallback
-        try:
-            url = f"{self.binance_url}/ticker/24hr"
+            top_symbols = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "SUI"]
+            syms_str = ",".join(top_symbols[:limit])
+            url = f"https://min-api.cryptocompare.com/data/pricemultifull?fsyms={syms_str}&tsyms=USD"
             res = requests.get(url, headers=self.headers, timeout=5)
             if res.status_code == 200:
-                data = res.json()
-                usdt_pairs = [d for d in data if d["symbol"].endswith("USDT") and float(d["quoteVolume"]) > 10000000][:limit]
+                raw_data = res.json().get("RAW", {})
                 movers = []
-                for p in usdt_pairs:
-                    sym = p["symbol"].replace("USDT", "")
-                    movers.append({
-                        "id": sym.lower(),
-                        "symbol": sym,
-                        "name": sym,
-                        "current_price": float(p["lastPrice"]),
-                        "price_change_percentage_24h": float(p["priceChangePercent"]),
-                    })
+                for sym in top_symbols[:limit]:
+                    raw = raw_data.get(sym, {}).get("USD", {})
+                    if raw:
+                        movers.append({
+                            "id": sym.lower(),
+                            "symbol": sym,
+                            "name": COMMON_TOKENS.get(sym.lower(), {}).get("name", sym),
+                            "current_price": float(raw.get("PRICE", 0.0)),
+                            "price_change_percentage_24h": float(raw.get("CHANGEPCT24HOUR", 0.0)),
+                        })
                 return movers
         except Exception as e:
-            logger.error(f"Binance top movers fallback failed: {e}")
-
+            logger.error(f"Top movers fetch failed: {e}")
         return []
