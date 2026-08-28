@@ -1,5 +1,9 @@
 import logging
 import asyncio
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,6 +26,26 @@ logger = logging.getLogger(__name__)
 # Initialize components
 market_client = MarketDataClient()
 db = WatchlistDatabase(DB_PATH)
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Dummy HTTP Health Check Handler for Render Free Web Service."""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Crypto Telegram Bot is active!")
+
+    def log_message(self, format, *args):
+        return  # Silence HTTP server logs
+
+
+def start_health_check_server():
+    """Starts a background HTTP health check server for Render compatibility."""
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Health check HTTP server listening on port {port}")
+    server.serve_forever()
 
 
 def format_price(price: float) -> str:
@@ -134,10 +158,7 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handles /risk <capital> <token> [risk_pct] command.
-    Calculates exact dollar position sizing and coin quantity based on portfolio risk tolerance.
-    """
+    """Handles /risk <capital> <token> [risk_pct] command."""
     if len(context.args) < 2:
         await update.message.reply_text(
             "❌ <b>Position Calculator Usage:</b>\n"
@@ -404,6 +425,10 @@ def main():
         print("Please set your TELEGRAM_BOT_TOKEN in the .env file or environment.")
         print("See README.md for instructions on getting a free token from @BotFather.")
         print("=" * 60 + "\n")
+
+    # Start HTTP Health Check Server in a background thread for Render Free Web Service support
+    t = threading.Thread(target=start_health_check_server, daemon=True)
+    t.start()
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN if TELEGRAM_BOT_TOKEN else "DUMMY_TOKEN").build()
 
