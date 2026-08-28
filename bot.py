@@ -3,7 +3,7 @@ import asyncio
 import os
 from aiohttp import web
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -67,9 +67,27 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⭐ My Watchlist", callback_data="cmd_watchlist"),
         ],
         [
-            InlineKeyboardButton("🛡️ Position Risk Calculator", callback_data="cmd_risk_help"),
+            InlineKeyboardButton("🛡️ Position Risk Calculator", callback_data="cmd_risk_menu"),
             InlineKeyboardButton("⚠️ Risk Disclaimer", callback_data="cmd_disclaimer"),
         ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_risk_calculator_preset_keyboard() -> InlineKeyboardMarkup:
+    """Creates preset buttons for 1-click risk calculation."""
+    keyboard = [
+        [
+            InlineKeyboardButton("💵 $1,000 on BTC", callback_data="calc_risk_1000_btc"),
+            InlineKeyboardButton("💵 $5,000 on BTC", callback_data="calc_risk_5000_btc"),
+        ],
+        [
+            InlineKeyboardButton("💵 $1,000 on SOL", callback_data="calc_risk_1000_sol"),
+            InlineKeyboardButton("💵 $5,000 on SOL", callback_data="calc_risk_5000_sol"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Main Menu", callback_data="cmd_menu")
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -122,7 +140,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends welcome message with persistent bottom keyboard + interactive inline buttons."""
     welcome_text = (
         "🤖 <b>Welcome to Professional Crypto Advisor & Signal Bot!</b>\n\n"
-        "Permanent menu buttons have been activated at the bottom of your screen!\n\n"
         "Click any button below to get live signals, market rankings, and risk calculations instantly:"
     )
     if update.callback_query:
@@ -135,12 +152,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /signal <token> command."""
     if not context.args:
+        msg_text = "❌ Usage: <code>/signal &lt;token&gt;</code> (e.g. <code>/signal btc</code>)\n\nOr click a quick signal button below:"
         if update.message:
-            await update.message.reply_text(
-                "❌ Usage: <code>/signal &lt;token&gt;</code>\nExample: <code>/signal btc</code>\n\nOr click a quick signal button below:",
-                parse_mode="HTML",
-                reply_markup=get_main_menu_keyboard()
-            )
+            await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
         return
 
     query = " ".join(context.args)
@@ -184,27 +200,42 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /risk <capital> <token> [risk_pct] command."""
+    """
+    Handles /risk <capital> <token> [risk_pct] command.
+    Flexible parsing accepts /risk 5000 btc or /risk btc 5000.
+    """
     if len(context.args) < 2:
         msg_text = (
-            "🛡️ <b>Position Calculator Usage:</b>\n"
-            "<code>/risk &lt;total_capital&gt; &lt;token&gt; [risk_percent]</code>\n\n"
-            "<b>Example:</b> <code>/risk 5000 btc</code> (Risks 1.5% of $5,000 portfolio on BTC)\n"
-            "<b>Example:</b> <code>/risk 10000 sol 2</code> (Risks 2.0% of $10,000 portfolio on SOL)"
+            "🛡️ <b>POSITION RISK CALCULATOR</b>\n\n"
+            "Calculates your exact dollar buy allocation & coin quantity to cap maximum trade risk at 1.5%.\n\n"
+            "<b>Usage:</b> <code>/risk &lt;capital&gt; &lt;token&gt;</code>\n"
+            "<b>Examples:</b>\n"
+            "• <code>/risk 5000 btc</code> (Risks 1.5% of $5,000 on BTC)\n"
+            "• <code>/risk 1000 sol</code> (Risks 1.5% of $1,000 on SOL)\n\n"
+            "<b>Or tap a 1-click preset calculation below:</b>"
         )
         if update.message:
-            await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+            await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_risk_calculator_preset_keyboard())
         elif update.callback_query:
-            await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+            await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_risk_calculator_preset_keyboard())
         return
 
+    arg1, arg2 = context.args[0], context.args[1]
+    capital = 0.0
+    query = ""
+
+    # Parse flexible argument order (/risk 5000 btc or /risk btc 5000)
     try:
-        capital = float(context.args[0].replace("$", "").replace(",", ""))
+        capital = float(arg1.replace("$", "").replace(",", ""))
+        query = arg2
     except ValueError:
-        await update.message.reply_text("❌ Invalid portfolio capital amount.")
-        return
+        try:
+            capital = float(arg2.replace("$", "").replace(",", ""))
+            query = arg1
+        except ValueError:
+            await update.message.reply_text("❌ Invalid portfolio capital amount. Example: <code>/risk 5000 btc</code>", parse_mode="HTML")
+            return
 
-    query = context.args[1]
     risk_pct = 1.5
     if len(context.args) >= 3:
         try:
@@ -212,15 +243,22 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             pass
 
+    if update.message:
+        status_msg = await update.message.reply_text(f"🔍 Calculating position sizing for <b>${capital:,.2f}</b> portfolio on <b>{query.upper()}</b>...", parse_mode="HTML")
+    elif update.callback_query:
+        status_msg = await update.callback_query.message.reply_text(f"🔍 Calculating position sizing for <b>${capital:,.2f}</b> portfolio on <b>{query.upper()}</b>...", parse_mode="HTML")
+    else:
+        return
+
     coin_info = market_client.resolve_coin_id(query)
     if not coin_info:
-        await update.message.reply_text(f"❌ Token '{query}' not found.")
+        await status_msg.edit_text(f"❌ Token '{query}' not found.")
         return
 
     coin_id = coin_info["id"]
     market_data = market_client.get_coin_market_data(coin_id, VS_CURRENCY)
     if not market_data:
-        await update.message.reply_text("❌ Unable to fetch current market price.")
+        await status_msg.edit_text("❌ Unable to fetch current market price. Try again later.")
         return
 
     ohlc_data = market_client.get_ohlc(coin_id, VS_CURRENCY, days=30)
@@ -230,7 +268,7 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     calc = SignalEngine.calculate_position_size(capital, risk_pct, entry_price, stop_loss_price)
     if "error" in calc:
-        await update.message.reply_text(f"❌ Calculation error: {calc['error']}")
+        await status_msg.edit_text(f"❌ Calculation error: {calc['error']}")
         return
 
     msg = (
@@ -245,7 +283,7 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <b>Total Dollar Value to Buy:</b> <code>${calc['position_dollar_value']:,.2f}</code> ({calc['portfolio_exposure_pct']:.1f}% of total portfolio)\n\n"
         f"<i>By purchasing exactly {calc['coin_quantity']:.4f} {coin_info['symbol']}, if the price hits your Stop-Loss at {format_price(stop_loss_price)}, your loss will be EXACTLY ${calc['max_risk_dollars']:,.2f} ({risk_pct:.1f}% of portfolio). This protects your account from liquidation!</i>"
     )
-    await update.message.reply_text(msg, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    await status_msg.edit_text(msg, parse_mode="HTML", reply_markup=get_risk_calculator_preset_keyboard())
 
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -429,8 +467,12 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif text == "⚠️ Disclaimer":
         await disclaimer_command(update, context)
     else:
-        # Treat single word inputs (e.g. 'btc', 'solana', 'pepe') as signal requests!
-        if len(text.split()) == 1 and not text.startswith("/"):
+        # Check if user typed risk syntax like '5000 btc' or '1000 sol'
+        parts = text.split()
+        if len(parts) == 2 and (parts[0].replace("$", "").replace(",", "").isdigit() or parts[1].replace("$", "").replace(",", "").isdigit()):
+            context.args = parts
+            await risk_command(update, context)
+        elif len(parts) == 1 and not text.startswith("/"):
             context.args = [text]
             await signal_command(update, context)
 
@@ -447,11 +489,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         symbol_target = data.replace("cmd_sig_", "")
         context.args = [symbol_target]
         await signal_command(update, context)
+    elif data.startswith("calc_risk_"):
+        # Format calc_risk_1000_btc -> capital=1000, token=btc
+        parts = data.split("_")
+        capital_val = parts[2]
+        token_val = parts[3]
+        context.args = [capital_val, token_val]
+        await risk_command(update, context)
     elif data == "cmd_top":
         await top_command(update, context)
     elif data == "cmd_watchlist":
         await watchlist_command(update, context)
-    elif data == "cmd_risk_help":
+    elif data in ["cmd_risk_help", "cmd_risk_menu"]:
         await risk_command(update, context)
     elif data == "cmd_disclaimer":
         await disclaimer_command(update, context)
