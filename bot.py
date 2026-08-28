@@ -3,12 +3,14 @@ import asyncio
 import os
 from aiohttp import web
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
 )
 
 from config import TELEGRAM_BOT_TOKEN, DB_PATH, VS_CURRENCY, ALERT_CHECK_INTERVAL
@@ -40,6 +42,16 @@ def format_price(price: float) -> str:
         return f"${price:.4f}"
     else:
         return f"${price:.8f}"
+
+
+def get_persistent_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Creates a persistent bottom reply keyboard always visible at the bottom of Telegram screen."""
+    keyboard = [
+        ["🚀 BTC Signal", "📈 ETH Signal", "☀️ SOL Signal"],
+        ["🏆 Top Signals", "⭐ My Watchlist"],
+        ["🛡️ Risk Calculator", "⚠️ Disclaimer"],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -107,16 +119,17 @@ def format_signal_message(analysis: dict) -> str:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends welcome message with interactive buttons on /start."""
+    """Sends welcome message with persistent bottom keyboard + interactive inline buttons."""
     welcome_text = (
         "🤖 <b>Welcome to Professional Crypto Advisor & Signal Bot!</b>\n\n"
-        "Click any button below to get live signals, market rankings, and risk calculations instantly!\n\n"
-        "⚡ <b>Quick Action Menu:</b>"
+        "Permanent menu buttons have been activated at the bottom of your screen!\n\n"
+        "Click any button below to get live signals, market rankings, and risk calculations instantly:"
     )
     if update.callback_query:
         await update.callback_query.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
     else:
-        await update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        await update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_persistent_menu_keyboard())
+        await update.message.reply_text("⚡ <b>Quick Action Menu:</b>", parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -310,10 +323,7 @@ async def remove_watchlist_command(update: Update, context: ContextTypes.DEFAULT
 
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handles /watchlist command.
-    Generates 1-click Signal and 1-click Remove buttons for EVERY saved token!
-    """
+    """Handles /watchlist command with 1-click Signal and Remove buttons."""
     user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
     items = db.get_user_watchlist(user_id)
 
@@ -329,7 +339,6 @@ async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in items:
         symbol = item["symbol"].upper()
         coin_id = item["coin_id"]
-        # Add Signal button and Remove button side-by-side
         keyboard.append([
             InlineKeyboardButton(f"🔍 {symbol} Signal", callback_data=f"cmd_sig_{symbol.lower()}"),
             InlineKeyboardButton(f"🗑️ Remove {symbol}", callback_data=f"del_{coin_id}_{symbol}")
@@ -397,6 +406,33 @@ async def disclaimer_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
     elif update.callback_query:
         await update.callback_query.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+
+
+async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles text messages sent by user or persistent keyboard button taps."""
+    text = update.message.text.strip()
+    if text == "🚀 BTC Signal":
+        context.args = ["btc"]
+        await signal_command(update, context)
+    elif text == "📈 ETH Signal":
+        context.args = ["eth"]
+        await signal_command(update, context)
+    elif text == "☀️ SOL Signal":
+        context.args = ["sol"]
+        await signal_command(update, context)
+    elif text == "🏆 Top Signals":
+        await top_command(update, context)
+    elif text == "⭐ My Watchlist":
+        await watchlist_command(update, context)
+    elif text == "🛡️ Risk Calculator":
+        await risk_command(update, context)
+    elif text == "⚠️ Disclaimer":
+        await disclaimer_command(update, context)
+    else:
+        # Treat single word inputs (e.g. 'btc', 'solana', 'pepe') as signal requests!
+        if len(text.split()) == 1 and not text.startswith("/"):
+            context.args = [text]
+            await signal_command(update, context)
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -472,6 +508,7 @@ async def main():
     app.add_handler(CommandHandler("alert", alert_command))
     app.add_handler(CommandHandler("disclaimer", disclaimer_command))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
     # Initialize and start bot polling
     await app.initialize()
