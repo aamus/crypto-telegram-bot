@@ -42,6 +42,26 @@ def format_price(price: float) -> str:
         return f"${price:.8f}"
 
 
+def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+    """Creates an interactive inline keyboard menu for quick command access."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🚀 BTC Signal", callback_data="cmd_btc"),
+            InlineKeyboardButton("📈 ETH Signal", callback_data="cmd_eth"),
+            InlineKeyboardButton("☀️ SOL Signal", callback_data="cmd_sol"),
+        ],
+        [
+            InlineKeyboardButton("🏆 Top 10 Signals", callback_data="cmd_top"),
+            InlineKeyboardButton("⭐ My Watchlist", callback_data="cmd_watchlist"),
+        ],
+        [
+            InlineKeyboardButton("🛡️ Position Risk Calculator", callback_data="cmd_risk_help"),
+            InlineKeyboardButton("⚠️ Risk Disclaimer", callback_data="cmd_disclaimer"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def format_signal_message(analysis: dict) -> str:
     """Formats signal analysis dictionary into clean HTML Telegram message."""
     symbol = analysis["symbol"]
@@ -87,27 +107,23 @@ def format_signal_message(analysis: dict) -> str:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends welcome message and menu on /start."""
+    """Sends welcome message with interactive buttons on /start."""
     welcome_text = (
         "🤖 <b>Welcome to Professional Crypto Advisor & Signal Bot!</b>\n\n"
-        "I provide institutional-grade trading suggestions using RSI, MACD, Moving Averages, Multi-timeframe trend scoring, and Market Sentiment.\n\n"
-        "⚡ <b>Available Commands:</b>\n"
-        "• <code>/signal &lt;token&gt;</code> - Get instant Buy/Sell trading signal for any token (e.g. <code>/signal btc</code>)\n"
-        "• <code>/risk &lt;capital&gt; &lt;token&gt;</code> - Calculate exact position size and dollar risk (e.g. <code>/risk 5000 btc</code>)\n"
-        "• <code>/top</code> - Scan top crypto assets for active signals\n"
-        "• <code>/watchlist</code> - View your saved watchlist\n"
-        "• <code>/add &lt;token&gt;</code> / <code>/remove &lt;token&gt;</code> - Manage saved tokens\n"
-        "• <code>/alert &lt;token&gt; &lt;price&gt;</code> - Set target price alert\n"
-        "• <code>/disclaimer</code> - Financial risk management advice\n\n"
-        "<i>Try typing <code>/signal btc</code> or <code>/risk 5000 btc</code> right now!</i>"
+        "Click any button below to get live signals, market rankings, and risk calculations instantly!\n\n"
+        "⚡ <b>Quick Action Menu:</b>"
     )
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
+    await update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /signal <token> command."""
     if not context.args:
-        await update.message.reply_text("❌ Usage: <code>/signal &lt;token&gt;</code>\nExample: <code>/signal btc</code>", parse_mode="HTML")
+        await update.message.reply_text(
+            "❌ Usage: <code>/signal &lt;token&gt;</code>\nExample: <code>/signal btc</code>\n\nOr click a quick signal button below:",
+            parse_mode="HTML",
+            reply_markup=get_main_menu_keyboard()
+        )
         return
 
     query = " ".join(context.args)
@@ -134,6 +150,9 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("➕ Add to Watchlist", callback_data=f"add_{coin_id}_{analysis['symbol']}"),
             InlineKeyboardButton("🔄 Refresh Signal", callback_data=f"refresh_{coin_id}"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Main Menu", callback_data="cmd_menu")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -145,11 +164,12 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /risk <capital> <token> [risk_pct] command."""
     if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ <b>Position Calculator Usage:</b>\n"
+            "🛡️ <b>Position Calculator Usage:</b>\n"
             "<code>/risk &lt;total_capital&gt; &lt;token&gt; [risk_percent]</code>\n\n"
             "<b>Example:</b> <code>/risk 5000 btc</code> (Risks 1.5% of $5,000 portfolio on BTC)\n"
             "<b>Example:</b> <code>/risk 10000 sol 2</code> (Risks 2.0% of $10,000 portfolio on SOL)",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=get_main_menu_keyboard()
         )
         return
 
@@ -200,7 +220,7 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <b>Total Dollar Value to Buy:</b> <code>${calc['position_dollar_value']:,.2f}</code> ({calc['portfolio_exposure_pct']:.1f}% of total portfolio)\n\n"
         f"<i>By purchasing exactly {calc['coin_quantity']:.4f} {coin_info['symbol']}, if the price hits your Stop-Loss at {format_price(stop_loss_price)}, your loss will be EXACTLY ${calc['max_risk_dollars']:,.2f} ({risk_pct:.1f}% of portfolio). This protects your account from liquidation!</i>"
     )
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await update.message.reply_text(msg, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -230,8 +250,8 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         change_str = f"+{change_24h:.1f}%" if change_24h > 0 else f"{change_24h:.1f}%"
         lines.append(f"• <b>{symbol}</b>: <code>{price}</code> ({change_str}) | {tag}")
 
-    lines.append("\n<i>Type <code>/signal &lt;symbol&gt;</code> for full technical setup.</i>")
-    await status_msg.edit_text("\n".join(lines), parse_mode="HTML")
+    lines.append("\n<i>Click any button below to generate full signal analysis:</i>")
+    await status_msg.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def add_watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -249,7 +269,7 @@ async def add_watchlist_command(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     success = db.add_to_watchlist(user_id, coin_info["id"], coin_info["symbol"], coin_info["name"])
     if success:
-        await update.message.reply_text(f"✅ Added <b>{coin_info['name']} ({coin_info['symbol']})</b> to your watchlist!", parse_mode="HTML")
+        await update.message.reply_text(f"✅ Added <b>{coin_info['name']} ({coin_info['symbol']})</b> to your watchlist!", parse_mode="HTML", reply_markup=get_main_menu_keyboard())
     else:
         await update.message.reply_text("❌ Failed to add to watchlist.")
 
@@ -268,7 +288,7 @@ async def remove_watchlist_command(update: Update, context: ContextTypes.DEFAULT
 
     user_id = update.effective_user.id
     db.remove_from_watchlist(user_id, coin_info["id"])
-    await update.message.reply_text(f"🗑️ Removed <b>{coin_info['name']}</b> from your watchlist.", parse_mode="HTML")
+    await update.message.reply_text(f"🗑️ Removed <b>{coin_info['name']}</b> from your watchlist.", parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -277,14 +297,14 @@ async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     items = db.get_user_watchlist(user_id)
 
     if not items:
-        await update.message.reply_text("📋 Your watchlist is currently empty.\nAdd tokens with <code>/add &lt;token&gt;</code>!", parse_mode="HTML")
+        await update.message.reply_text("📋 Your watchlist is currently empty.\nAdd tokens with <code>/add &lt;token&gt;</code>!", parse_mode="HTML", reply_markup=get_main_menu_keyboard())
         return
 
     lines = ["⭐ <b>Your Crypto Watchlist</b>\n"]
     for item in items:
         lines.append(f"• <b>{item['name']} ({item['symbol']})</b> — /signal_{item['symbol'].lower()}")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -318,7 +338,8 @@ async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Token: <b>{coin_info['name']} ({coin_info['symbol']})</b>\n"
         f"Current Price: {format_price(current_price)}\n"
         f"Target Alert: Notify when price goes <b>{condition} {format_price(target_price)}</b>",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_main_menu_keyboard()
     )
 
 
@@ -331,7 +352,7 @@ async def disclaimer_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "• Never risk more than 1%-2% of your total capital on a single position.\n"
         "• Use <code>/risk &lt;capital&gt; &lt;token&gt;</code> to manage position sizing."
     )
-    await update.message.reply_text(disclaimer_text, parse_mode="HTML")
+    await update.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,16 +363,35 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
-    if data.startswith("add_"):
+    # Handle quick command buttons
+    if data == "cmd_btc":
+        context.args = ["btc"]
+        await signal_command(update, context)
+    elif data == "cmd_eth":
+        context.args = ["eth"]
+        await signal_command(update, context)
+    elif data == "cmd_sol":
+        context.args = ["sol"]
+        await signal_command(update, context)
+    elif data == "cmd_top":
+        await top_command(update, context)
+    elif data == "cmd_watchlist":
+        await watchlist_command(update, context)
+    elif data == "cmd_risk_help":
+        await risk_command(update, context)
+    elif data == "cmd_disclaimer":
+        await disclaimer_command(update, context)
+    elif data == "cmd_menu":
+        await start_command(update, context)
+    elif data.startswith("add_"):
         parts = data.split("_")
         coin_id = parts[1]
         symbol = parts[2]
         db.add_to_watchlist(user_id, coin_id, symbol, symbol)
         try:
-            await query.message.reply_text(f"✅ Added {symbol} to Watchlist!")
+            await query.message.reply_text(f"✅ Added {symbol} to Watchlist!", reply_markup=get_main_menu_keyboard())
         except Exception:
             pass
-
     elif data.startswith("refresh_"):
         coin_id = data.split("_")[1]
         market_data = market_client.get_coin_market_data(coin_id, VS_CURRENCY)
@@ -394,7 +434,7 @@ async def main():
     await app.updater.start_polling(drop_pending_updates=True)
     logger.info("🤖 Telegram Bot Polling Started Successfully!")
 
-    # Start Aiohttp Web Server for Cloud Health Checks (Render / Koyeb)
+    # Start Aiohttp Web Server for Cloud Health Checks
     port = int(os.environ.get("PORT", 8080))
     server_app = web.Application()
     server_app.router.add_get("/", handle_health_check)
