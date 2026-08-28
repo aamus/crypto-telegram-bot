@@ -312,7 +312,7 @@ async def remove_watchlist_command(update: Update, context: ContextTypes.DEFAULT
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles /watchlist command.
-    Generates interactive buttons for EVERY saved token so user can click to see signals!
+    Generates 1-click Signal and 1-click Remove buttons for EVERY saved token!
     """
     user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
     items = db.get_user_watchlist(user_id)
@@ -325,23 +325,20 @@ async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
         return
 
-    # Build interactive buttons for each item in user's watchlist
     keyboard = []
-    row = []
     for item in items:
         symbol = item["symbol"].upper()
-        row.append(InlineKeyboardButton(f"🔍 {symbol} Signal", callback_data=f"cmd_sig_{symbol.lower()}"))
-        if len(row) == 2:  # 2 buttons per row
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
+        coin_id = item["coin_id"]
+        # Add Signal button and Remove button side-by-side
+        keyboard.append([
+            InlineKeyboardButton(f"🔍 {symbol} Signal", callback_data=f"cmd_sig_{symbol.lower()}"),
+            InlineKeyboardButton(f"🗑️ Remove {symbol}", callback_data=f"del_{coin_id}_{symbol}")
+        ])
 
-    # Menu control buttons
     keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="cmd_menu")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    lines = ["⭐ <b>YOUR SAVED CRYPTO WATCHLIST</b>\n", "Click any button below to generate instant trading signals:\n"]
+    lines = ["⭐ <b>YOUR SAVED CRYPTO WATCHLIST</b>\n", "Click 🔍 to see signal, or 🗑️ to remove a token:\n"]
     for item in items:
         lines.append(f"• <b>{item['name']} ({item['symbol'].upper()})</b>")
 
@@ -410,7 +407,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
-    # Dynamic signal button click handler (e.g. cmd_sig_btc or cmd_sig_sol)
     if data.startswith("cmd_sig_"):
         symbol_target = data.replace("cmd_sig_", "")
         context.args = [symbol_target]
@@ -425,6 +421,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await disclaimer_command(update, context)
     elif data == "cmd_menu":
         await start_command(update, context)
+    elif data.startswith("del_"):
+        parts = data.split("_")
+        coin_id = parts[1]
+        symbol = parts[2]
+        db.remove_from_watchlist(user_id, coin_id)
+        await query.message.reply_text(f"🗑️ Removed <b>{symbol}</b> from Watchlist!", parse_mode="HTML")
+        await watchlist_command(update, context)
     elif data.startswith("add_"):
         parts = data.split("_")
         coin_id = parts[1]
