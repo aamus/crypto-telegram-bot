@@ -1,8 +1,7 @@
 import logging
 import asyncio
 import os
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
+from aiohttp import web
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -28,27 +27,9 @@ market_client = MarketDataClient()
 db = WatchlistDatabase(DB_PATH)
 
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Dummy HTTP Health Check Handler for Cloud Web Services."""
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Crypto Telegram Bot is active!")
-
-    def log_message(self, format, *args):
-        return
-
-
-def start_health_check_server():
-    """Starts background HTTP server on $PORT for Render/Cloud health checks."""
-    try:
-        port = int(os.environ.get("PORT", 8080))
-        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-        logger.info(f"Health check HTTP server listening on port {port}")
-        server.serve_forever()
-    except Exception as e:
-        logger.error(f"HTTP health server error: {e}")
+async def handle_health_check(request):
+    """Health check endpoint for Render/Koyeb web services."""
+    return web.Response(text="Crypto Telegram Bot is active and running 24/7!", content_type="text/plain")
 
 
 def format_price(price: float) -> str:
@@ -385,55 +366,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
 
-async def check_alerts_job(context: ContextTypes.DEFAULT_TYPE):
-    """Background task to check active user price alerts."""
-    alerts = db.get_active_alerts()
-    if not alerts:
-        return
-
-    for alert in alerts:
-        coin_id = alert["coin_id"]
-        market_data = market_client.get_coin_market_data(coin_id, VS_CURRENCY)
-        if not market_data:
-            continue
-
-        current_price = market_data.get("current_price", 0.0)
-        target_price = alert["target_price"]
-        condition = alert["condition"]
-
-        triggered = False
-        if condition == "ABOVE" and current_price >= target_price:
-            triggered = True
-        elif condition == "BELOW" and current_price <= target_price:
-            triggered = True
-
-        if triggered:
-            user_id = alert["user_id"]
-            symbol = alert["symbol"]
-            msg = (
-                f"🚨 <b>PRICE ALERT TRIGGERED!</b> 🚨\n\n"
-                f"Token: <b>{symbol}</b>\n"
-                f"Target Price: <code>{format_price(target_price)}</code>\n"
-                f"Current Price: <code>{format_price(current_price)}</code>\n\n"
-                f"<i>Condition met ({condition}). Use <code>/signal {symbol}</code> to analyze next move!</i>"
-            )
-            try:
-                await context.bot.send_message(chat_id=user_id, text=msg, parse_mode="HTML")
-                db.deactivate_alert(alert["id"])
-            except Exception as e:
-                logger.error(f"Failed to send alert notification to {user_id}: {e}")
-
-
-def main():
+async def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN)
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        print("❌ TELEGRAM_BOT_TOKEN is missing!")
+        logger.error("TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    # Start HTTP Health Check Server in a background thread for Render compatibility
-    t = threading.Thread(target=start_health_check_server, daemon=True)
-    t.start()
-
+    # Build Telegram Bot Application
     app = Application.builder().token(token).build()
 
     # Handlers
@@ -449,15 +388,33 @@ def main():
     app.add_handler(CommandHandler("disclaimer", disclaimer_command))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
-    if app.job_queue:
-        try:
-            app.job_queue.run_repeating(check_alerts_job, interval=ALERT_CHECK_INTERVAL, first=10)
-        except Exception as e:
-            logger.warning(f"Job queue initialization skipped: {e}")
+    # Initialize and start bot polling
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
+    logger.info("🤖 Telegram Bot Polling Started Successfully!")
 
-    print("🚀 Starting Professional Crypto Financial Suggestion Bot...")
-    app.run_polling()
+    # Start Aiohttp Web Server for Cloud Health Checks (Render / Koyeb)
+    port = int(os.environ.get("PORT", 8080))
+    server_app = web.Application()
+    server_app.router.add_get("/", handle_health_check)
+    server_app.router.add_get("/health", handle_health_check)
+
+    runner = web.AppRunner(server_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 Cloud Health Check Web Server running on port {port}")
+
+    # Keep async loop running continuously
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
