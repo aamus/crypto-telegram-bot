@@ -46,9 +46,9 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Creates an interactive inline keyboard menu for quick command access."""
     keyboard = [
         [
-            InlineKeyboardButton("🚀 BTC Signal", callback_data="cmd_btc"),
-            InlineKeyboardButton("📈 ETH Signal", callback_data="cmd_eth"),
-            InlineKeyboardButton("☀️ SOL Signal", callback_data="cmd_sol"),
+            InlineKeyboardButton("🚀 BTC Signal", callback_data="cmd_sig_btc"),
+            InlineKeyboardButton("📈 ETH Signal", callback_data="cmd_sig_eth"),
+            InlineKeyboardButton("☀️ SOL Signal", callback_data="cmd_sig_sol"),
         ],
         [
             InlineKeyboardButton("🏆 Top 10 Signals", callback_data="cmd_top"),
@@ -113,21 +113,30 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Click any button below to get live signals, market rankings, and risk calculations instantly!\n\n"
         "⚡ <b>Quick Action Menu:</b>"
     )
-    await update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    if update.callback_query:
+        await update.callback_query.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    else:
+        await update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /signal <token> command."""
     if not context.args:
-        await update.message.reply_text(
-            "❌ Usage: <code>/signal &lt;token&gt;</code>\nExample: <code>/signal btc</code>\n\nOr click a quick signal button below:",
-            parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard()
-        )
+        if update.message:
+            await update.message.reply_text(
+                "❌ Usage: <code>/signal &lt;token&gt;</code>\nExample: <code>/signal btc</code>\n\nOr click a quick signal button below:",
+                parse_mode="HTML",
+                reply_markup=get_main_menu_keyboard()
+            )
         return
 
     query = " ".join(context.args)
-    status_msg = await update.message.reply_text(f"🔍 Analyzing technical indicators & multi-timeframe trends for <b>{query.upper()}</b>...", parse_mode="HTML")
+    if update.message:
+        status_msg = await update.message.reply_text(f"🔍 Analyzing technical indicators & multi-timeframe trends for <b>{query.upper()}</b>...", parse_mode="HTML")
+    elif update.callback_query:
+        status_msg = await update.callback_query.message.reply_text(f"🔍 Analyzing technical indicators & multi-timeframe trends for <b>{query.upper()}</b>...", parse_mode="HTML")
+    else:
+        return
 
     coin_info = market_client.resolve_coin_id(query)
     if not coin_info:
@@ -152,6 +161,7 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🔄 Refresh Signal", callback_data=f"refresh_{coin_id}"),
         ],
         [
+            InlineKeyboardButton("⭐ My Watchlist", callback_data="cmd_watchlist"),
             InlineKeyboardButton("🔙 Main Menu", callback_data="cmd_menu")
         ]
     ]
@@ -163,14 +173,16 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /risk <capital> <token> [risk_pct] command."""
     if len(context.args) < 2:
-        await update.message.reply_text(
+        msg_text = (
             "🛡️ <b>Position Calculator Usage:</b>\n"
             "<code>/risk &lt;total_capital&gt; &lt;token&gt; [risk_percent]</code>\n\n"
             "<b>Example:</b> <code>/risk 5000 btc</code> (Risks 1.5% of $5,000 portfolio on BTC)\n"
-            "<b>Example:</b> <code>/risk 10000 sol 2</code> (Risks 2.0% of $10,000 portfolio on SOL)",
-            parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard()
+            "<b>Example:</b> <code>/risk 10000 sol 2</code> (Risks 2.0% of $10,000 portfolio on SOL)"
         )
+        if update.message:
+            await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
         return
 
     try:
@@ -225,7 +237,13 @@ async def risk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /top command showing top 10 market tokens with signals."""
-    status_msg = await update.message.reply_text("📊 Fetching top market crypto signals...", parse_mode="HTML")
+    if update.message:
+        status_msg = await update.message.reply_text("📊 Fetching top market crypto signals...", parse_mode="HTML")
+    elif update.callback_query:
+        status_msg = await update.callback_query.message.reply_text("📊 Fetching top market crypto signals...", parse_mode="HTML")
+    else:
+        return
+
     movers = market_client.get_top_movers(VS_CURRENCY, limit=10)
 
     if not movers:
@@ -292,19 +310,45 @@ async def remove_watchlist_command(update: Update, context: ContextTypes.DEFAULT
 
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /watchlist command."""
-    user_id = update.effective_user.id
+    """
+    Handles /watchlist command.
+    Generates interactive buttons for EVERY saved token so user can click to see signals!
+    """
+    user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
     items = db.get_user_watchlist(user_id)
 
     if not items:
-        await update.message.reply_text("📋 Your watchlist is currently empty.\nAdd tokens with <code>/add &lt;token&gt;</code>!", parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        msg_text = "📋 <b>Your Watchlist is Empty!</b>\n\nAdd tokens by typing <code>/add &lt;token&gt;</code> (e.g. <code>/add sol</code>)!"
+        if update.message:
+            await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(msg_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
         return
 
-    lines = ["⭐ <b>Your Crypto Watchlist</b>\n"]
+    # Build interactive buttons for each item in user's watchlist
+    keyboard = []
+    row = []
     for item in items:
-        lines.append(f"• <b>{item['name']} ({item['symbol']})</b> — /signal_{item['symbol'].lower()}")
+        symbol = item["symbol"].upper()
+        row.append(InlineKeyboardButton(f"🔍 {symbol} Signal", callback_data=f"cmd_sig_{symbol.lower()}"))
+        if len(row) == 2:  # 2 buttons per row
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    # Menu control buttons
+    keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="cmd_menu")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    lines = ["⭐ <b>YOUR SAVED CRYPTO WATCHLIST</b>\n", "Click any button below to generate instant trading signals:\n"]
+    for item in items:
+        lines.append(f"• <b>{item['name']} ({item['symbol'].upper()})</b>")
+
+    if update.message:
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML", reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text("\n".join(lines), parse_mode="HTML", reply_markup=reply_markup)
 
 
 async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -352,7 +396,10 @@ async def disclaimer_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "• Never risk more than 1%-2% of your total capital on a single position.\n"
         "• Use <code>/risk &lt;capital&gt; &lt;token&gt;</code> to manage position sizing."
     )
-    await update.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    if update.message:
+        await update.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(disclaimer_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -363,15 +410,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
-    # Handle quick command buttons
-    if data == "cmd_btc":
-        context.args = ["btc"]
-        await signal_command(update, context)
-    elif data == "cmd_eth":
-        context.args = ["eth"]
-        await signal_command(update, context)
-    elif data == "cmd_sol":
-        context.args = ["sol"]
+    # Dynamic signal button click handler (e.g. cmd_sig_btc or cmd_sig_sol)
+    if data.startswith("cmd_sig_"):
+        symbol_target = data.replace("cmd_sig_", "")
+        context.args = [symbol_target]
         await signal_command(update, context)
     elif data == "cmd_top":
         await top_command(update, context)
