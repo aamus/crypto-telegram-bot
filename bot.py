@@ -29,7 +29,7 @@ db = WatchlistDatabase(DB_PATH)
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Dummy HTTP Health Check Handler for Render Free Web Service."""
+    """Dummy HTTP Health Check Handler for Cloud Web Services."""
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
@@ -37,15 +37,18 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Crypto Telegram Bot is active!")
 
     def log_message(self, format, *args):
-        return  # Silence HTTP server logs
+        return
 
 
 def start_health_check_server():
-    """Starts a background HTTP health check server for Render compatibility."""
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logger.info(f"Health check HTTP server listening on port {port}")
-    server.serve_forever()
+    """Starts background HTTP server on $PORT for Render/Cloud health checks."""
+    try:
+        port = int(os.environ.get("PORT", 8080))
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        logger.info(f"Health check HTTP server listening on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"HTTP health server error: {e}")
 
 
 def format_price(price: float) -> str:
@@ -58,7 +61,7 @@ def format_price(price: float) -> str:
         return f"${price:.8f}"
 
 
-def format_signal_message(analysis: Dict) -> str:
+def format_signal_message(analysis: dict) -> str:
     """Formats signal analysis dictionary into clean HTML Telegram message."""
     symbol = analysis["symbol"]
     name = analysis["name"]
@@ -363,7 +366,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coin_id = parts[1]
         symbol = parts[2]
         db.add_to_watchlist(user_id, coin_id, symbol, symbol)
-        await query.edit_message_caption(caption=f"✅ Added {symbol} to Watchlist!") if query.message.caption else await query.message.reply_text(f"✅ Added {symbol} to Watchlist!")
+        try:
+            await query.message.reply_text(f"✅ Added {symbol} to Watchlist!")
+        except Exception:
+            pass
 
     elif data.startswith("refresh_"):
         coin_id = data.split("_")[1]
@@ -419,18 +425,16 @@ async def check_alerts_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        print("\n" + "=" * 60)
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN)
+    if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         print("❌ TELEGRAM_BOT_TOKEN is missing!")
-        print("Please set your TELEGRAM_BOT_TOKEN in the .env file or environment.")
-        print("See README.md for instructions on getting a free token from @BotFather.")
-        print("=" * 60 + "\n")
+        return
 
-    # Start HTTP Health Check Server in a background thread for Render Free Web Service support
+    # Start HTTP Health Check Server in a background thread for Render compatibility
     t = threading.Thread(target=start_health_check_server, daemon=True)
     t.start()
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN if TELEGRAM_BOT_TOKEN else "DUMMY_TOKEN").build()
+    app = Application.builder().token(token).build()
 
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
@@ -446,7 +450,10 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     if app.job_queue:
-        app.job_queue.run_repeating(check_alerts_job, interval=ALERT_CHECK_INTERVAL, first=10)
+        try:
+            app.job_queue.run_repeating(check_alerts_job, interval=ALERT_CHECK_INTERVAL, first=10)
+        except Exception as e:
+            logger.warning(f"Job queue initialization skipped: {e}")
 
     print("🚀 Starting Professional Crypto Financial Suggestion Bot...")
     app.run_polling()
